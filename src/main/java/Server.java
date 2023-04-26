@@ -7,7 +7,10 @@ import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -16,10 +19,12 @@ public class Server {
             "/styles.css", "/app.js", "/links.html", "/forms.html", "/classic.html", "/events.html", "/events.js");
     public int port;
     public ExecutorService executorService;
+    public ConcurrentHashMap<String, Map<String, Handler>> handlers;
 
     public Server(int port, int poolSize) {
         this.port = port;
         executorService = Executors.newFixedThreadPool(poolSize);
+        handlers = new ConcurrentHashMap<>();
     }
 
     public void serverStart() {
@@ -45,25 +50,31 @@ public class Server {
                 return;
             }
 
+            final var method = parts[0];
             final var path = parts[1];
-            if (!validPaths.contains(path)) {
-                out.write((
-                        "HTTP/1.1 404 Not Found\r\n" +
-                                "Content-Length: 0\r\n" +
-                                "Connection: close\r\n" +
-                                "\r\n"
-                ).getBytes());
-                out.flush();
+            Request request = new Request(method, path);
+            if (!handlers.containsKey(request.getMethod())) {
+                responseWithoutContent(out, "404", "Not found");
+            }
+
+            Map<String, Handler> handlerMap = handlers.get(request.getMethod());
+            String requestPath = request.getPath();
+            if (handlerMap.containsKey(requestPath)) {
+                Handler handler = handlerMap.get(requestPath);
+                handler.handle(request, out);
             } else {
-                processing(out, path);
+                if (!validPaths.contains(request.getPath())) {
+                    responseWithoutContent(out, "404", "Not found");
+                } else {
+                    processing(out, path);
+                }
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
-        } catch (NullPointerException ignored) {
         }
     }
 
-    private void processing(BufferedOutputStream out, String path) throws IOException {
+    public void processing(BufferedOutputStream out, String path) throws IOException {
         final var filePath = Path.of(".", "public", path);
         final var mimeType = Files.probeContentType(filePath);
 
@@ -96,6 +107,23 @@ public class Server {
         ).getBytes());
         Files.copy(filePath, out);
         out.flush();
+    }
+
+    public void responseWithoutContent(BufferedOutputStream out, String responseCode, String responseStatus) throws IOException {
+        out.write((
+                "HTTP/1.1 " + responseCode + " " + responseStatus + "\r\n" +
+                        "Content-Length: 0\r\n" +
+                        "Connection: close\r\n" +
+                        "\r\n"
+        ).getBytes());
+        out.flush();
+    }
+
+    protected void addHandler(String method, Handler handler) {
+        if (!handlers.containsKey(method)) {
+            handlers.put(method, new HashMap<>());
+        }
+        handlers.get(method).put("/messages", handler);
     }
 }
 
