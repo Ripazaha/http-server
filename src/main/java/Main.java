@@ -4,6 +4,12 @@ public class Main {
         int poolSize = 64;
 
         final var server = new Server(port, poolSize);
+
+        server.addHandler("GET", ((request, responseStream) -> server.responseWithoutContent(responseStream,
+                "404", "Not found")));
+        server.addHandler("POST", (request, responseStream) -> server.responseWithoutContent(responseStream,
+                "404", "Not found"));
+
         server.serverStart();
     }
 }
